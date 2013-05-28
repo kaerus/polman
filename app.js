@@ -74,7 +74,7 @@ app.get('/api/forecast', function(req, res) {
 
 var Helpers = {
   time: function(format,value){
-    return strftime(format,value);
+    return strftime(format,new Date(Date.parse(value)));
   },
   temp: function(scale,value){
     var t;
@@ -122,18 +122,28 @@ function handleShowForecast(req, res) {
     if(err) {
       return res.send(err);
     }
-    
+
     res.setHeader("X-Polman-Cache-Hit", fromCache || false);
+
+    var data = {
+      location: forecast.weatherdata.location,
+      credit: forecast.weatherdata.credit,
+      meta: forecast.weatherdata.meta,
+      sun: forecast.weatherdata.sun,
+      forecast: forecast.weatherdata.forecast.tabular
+    };
+
+    if(limit) data.forecast = data.forecast.slice(0,limit);
 
     res.format({
       "html":function(){
-        res.render('forecast',{data:forecast.weatherdata.forecast.tabular,x:Helpers})
+        res.render('forecast',{data:data,x:Helpers})
       },
       "json":function(){
-        res.json(forecast);
+        res.json(data);
       },
       "javascript":function(){
-        res.jsonp(forecast);
+        res.jsonp(data);
       }
     });    
     
