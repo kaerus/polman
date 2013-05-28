@@ -139,10 +139,10 @@ function handleShowForecast(req, res) {
       "html":function(){
         res.render('forecast',{data:data,x:Helpers})
       },
-      "json":function(){
+      "application/json":function(){
         res.json(data);
       },
-      "javascript":function(){
+      "application/javascript":function(){
         res.jsonp(data);
       }
     });    
