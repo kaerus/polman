@@ -10,6 +10,7 @@ var express = require('express'),
     YR;
 
 
+var apiURL = "http://www.yr.no/place/";
 
 try {
   var translations = JSON.parse(fs.readFileSync('translate.json'));
@@ -60,7 +61,7 @@ app.post('/', function(req, res){
       lang = req.body.lang || 'en';
 
   if(!url) {
-    return res.render('index', {error: "Please enter a valid URL. Example:<br/>http://www.yr.no/place/Sweden/Stockholm/Stockholm/"});
+    return res.render('index', {error: "Please enter a place. Example:<br/>Sweden/Stockholm/Stockholm"});
   }
 
   url = tidyUrl(url);
@@ -102,22 +103,25 @@ var Helpers = {
     else s = value + 'm/s';
     
     return s;
+  },
+  limit: function(array,limit){
+      if(!limit) return array;
+
+      return array.slice(0,limit);
   }
 };
 
 // Generic handler of forecast that
 // outputs HTML or widget
 function handleShowForecast(req, res) {
-  var weatherUrl = req.query.url,
-      limit = req.query.limit || 10;
+  var place = req.query.place,
+      limit = req.query.limit == undefined ? 10 : req.query.limit;
 
-  if(!weatherUrl) {
-    return res.send(400, "Missing url to forecast xml. Example: ?url=http://www.yr.no/place/Norway/Telemark/Sauherad/Gvarv/forecast.xml");
+  if(!place) {
+    return res.send(400, "Missing place to forecast xml. Example: ?place=Norway/Telemark/Sauherad/Gvarv");
   }
 
-  weatherUrl = weatherUrl.replace('http://', '');
-
-  Cache.getOrFetch(weatherUrl, function(err, forecast, fromCache) {
+  Cache.getOrFetch(place, function(err, data, fromCache) {
 
     if(err) {
       return res.send(err);
@@ -125,19 +129,9 @@ function handleShowForecast(req, res) {
 
     res.setHeader("X-Polman-Cache-Hit", fromCache || false);
 
-    var data = {
-      location: forecast.weatherdata.location,
-      credit: forecast.weatherdata.credit,
-      meta: forecast.weatherdata.meta,
-      sun: forecast.weatherdata.sun,
-      forecast: forecast.weatherdata.forecast.tabular
-    };
-
-    if(limit) data.forecast = data.forecast.slice(0,limit);
-
     res.format({
       "html":function(){
-        res.render('forecast',{data:data,x:Helpers})
+        res.render('forecast',{data:data,items:limit,x:Helpers})
       },
       "application/json":function(){
         res.json(data);
@@ -150,21 +144,6 @@ function handleShowForecast(req, res) {
   });
 }
 
-// Tidies URL that user posted.
-function tidyUrl(url) {
-  if(url.slice(0,7).toLowerCase() !== 'http://') {
-    url = 'http://' + url;
-  }
-
-  if(url.indexOf('.xml') === -1) {
-    if(url.indexOf('/', url.length - 1) === -1) {
-      url += '/';
-    }
-    url += 'forecast.xml';
-  }
-  return url;
-}
-
 
 //
 // YR client for fetching and parsing data from
@@ -173,61 +152,53 @@ function tidyUrl(url) {
 YR = {
 
   initialize: function() {
-    this.parser = new xml2js.Parser({ mergeAttrs: true, explicitArray: false });
+    this.xml2js = new xml2js.Parser({ mergeAttrs: true, explicitArray: false });
   },
 
   // Fetch weather data from given url
-  fetch: function(url, cb) {
-    var that = this;
+  fetch: function(place, cb) {
+    var self = this;
 
-    http.get({
-      host: 'www.yr.no',
-      path: url.slice(url.indexOf('/'), url.length)
-    }, onResponse).end();
+    http.get(apiURL+place+"/forecast.xml", function(res) {
+      var buf = '';
 
-    function onResponse(res) {
-      var body = '';
-
-      if(res.status >= 400) {
-        cb.call(this, "Could not retriev data from " + url + " - are you sure this is a valid URL?");
+      if(res.status > 399) {
+        cb.call(this, "Failed to retrieve data for " + place);
       }
 
-      res.on('data', function (chunk) {
-        body += chunk;
+      res.on('data', function (data) {
+        buf+= data;
       });
     
       res.on('end', function () {
-        that.xmlToJson(body, function(err, json) {
+        // Parse XML from yr.no into JSON format
+        // that can be used when rendering the view.
+        self.xml2js.parseString(buf, function(err, json) {
+
           if(err || json['error']) {
-            cb.call(this, "Error: Could not parse XML from yr.no");
+            cb.call(this, "Error: Failed to parse XML from yr.no");
             return;
           }
-          json = that.tidyJSON(json);
-          Cache.set(url, json);
-          cb.call(this, undefined, json);
+
+          var data = {
+            forecast: json.weatherdata.forecast.tabular.time,
+            location: json.weatherdata.location,
+            credit: json.weatherdata.credit,
+            meta: json.weatherdata.meta,
+            sun: json.weatherdata.sun
+          };
+
+          Cache.set(place, data);
+          
+          cb.call(this, undefined, data);
         });
       });
 
       res.on('error', function () {
-        cb.call(this, "Could not fetch data from yr.no");
+        cb.call(this, "Failed to fetch data from yr.no");
       });
-    }
-  },
+    }).end();
 
-  // Parse XML from yr.no into JSON format
-  // that can be used when rendering the view.
-  xmlToJson: function(xml, cb) {
-    this.parser.parseString(xml, cb);
-  },
-
-  // Tidy JSON object that was automagically
-  // created from XML
-  tidyJSON: function(json) {
-    json.weatherdata.forecast.tabular = json.weatherdata.forecast.tabular.time;
-    if(json.weatherdata.forecast.text) {
-      delete json.weatherdata.forecast.text;
-    }
-    return json;
   }
 
 };
@@ -236,11 +207,11 @@ Cache = {
   store:{},
   ttl: 60*15*1000,
   getOrFetch: function(key, cb) {
-    var forecast = this.get(key);
+    var data = this.get(key);
     
-    if(forecast) {
+    if(data) {
         // Hit from cache
-        cb.call(this, undefined, forecast, true);
+        cb.call(this, undefined, data, true);
     } else {
         // Go ask yr.no about the forecast
         YR.fetch(key, cb);

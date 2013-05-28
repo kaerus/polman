@@ -12,7 +12,7 @@ block content
         th= t('wind') + '(' + t('speed') + ')'
         th= t('wind') + '(' + t('direction') + ')'
     tbody
-      for item in data.forecast  
+      for item in x.limit(data.forecast,items)  
         tr
           td= x.time( t('_date_'), item.from)
           td= x.time( t('_time_'), item.from) + '-' + x.time(t('_time_'),item.to)
