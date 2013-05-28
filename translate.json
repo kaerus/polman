@@ -1,0 +1,41 @@
+{
+	"en": {
+		"translation":{
+			"date":"date",
+			"time":"time",
+			"temp":"temprature",
+			"prec":"precipitation",
+			"wind":"wind",
+			"direction":"direction",
+			"speed": "speed",
+			"_date_":"%Y-%d-%m",
+			"_time_":"%H:%M",
+			"_temp_":"celsius",
+			"_length_":"inch",
+			"_speed_":"knot"
+		}	
+	},
+	"en-US": {
+		"translation":{
+			"_temp_":"fahrenheit",
+			"_length_":"inch",
+			"_speed_":"knot"
+		}	
+	},
+	"sv": {
+		"translation":{
+			"date":"datum",
+			"time":"klockslag",
+			"temp":"temperatur",
+			"prec":"nederbörd",
+			"wind":"vind",
+			"direction":"riktning",
+			"speed":"hastighet",
+			"_date_":"%Y-%m-%d",
+			"_time_":"%H:%M",
+			"_temp_":"celsius",
+			"_length_":"millimeter",
+			"_speed_":"mps"
+		}
+	}
+}

@@ -5,30 +5,19 @@ block content
   table
     thead
       tr
-        th Datum
-        th Klockslag
-        th Temp
-        th Nederbörd
-        th Vindhastighet
-        th Vindriktning
+        th= t('date')
+        th= t('time')
+        th= t('temp')
+        th= t('prec')
+        th= t('wind') + '(' + t('speed') + ')'
+        th= t('wind') + '(' + t('direction') + ')'
     tbody
-      //- TODO: this loop sure is ugly - fix
-      - var i = 0;
-      for item in forecast.weatherdata.forecast.tabular  
-        - i++; if(i > num) return;
+      for item in data  
         tr
-          td: mixin formatDate(item.from)
-          td: mixin formatTime(item.from, item.to)
-          td= item.temperature.value + "&deg;"
-          td= item.precipitation.value + "mm"
-          td= item.windSpeed.mps + "m/s"
+          td= x.time( t('_date_'), item.from)
+          td= x.time( t('_time_'), item.from) + '-' + x.time(t('_time_'),item.to)
+          td!= x.temp( t('_temp_'), item.temperature.value)
+          td= x.length( t('_length_'), item.precipitation.value)
+          td= x.speed( t('_speed_'), item.windSpeed.mps)
           td= item.windDirection.code
 
-mixin formatDate(d)
-  - d = moment(d).format("YYYY-MM-DD")
-  = d
-
-mixin formatTime(from, to)
-  - from = moment(from).format("HH:mm")
-  - to = moment(to).format("HH:mm")
-  = from + '-' + to

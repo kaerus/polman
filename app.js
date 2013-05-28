@@ -3,21 +3,36 @@ var express = require('express'),
     http = require('http'),
     path = require('path'),
     xml2js = require('xml2js'),
-    moment = require('moment'),
-    redis,
+    strftime = require('strftime'),
+    i18n = require('i18next'),
+    fs = require('fs'),
     Cache,
     YR;
 
+
+
+try {
+  var translations = JSON.parse(fs.readFileSync('translate.json'));
+  i18n.init({resStore: translations, fallbackLng:'en'});
+} catch(error){
+  console.error("Failed to open or parse translations:",error);
+  process.exit(1);
+}
+
+
 var app = express();
+
 
 app.configure(function(){
   app.set('port', process.env.PORT || 3000);
   app.set('views', __dirname + '/views');
   app.set('view engine', 'jade');
+  app.set('jsonp callback name','jsonp');  
   app.use(express.favicon());
   app.use(express.logger('dev'));
   app.use(express.bodyParser());
   app.use(express.methodOverride());
+  app.use(i18n.handle);
   app.use(app.router);
   app.use(require('less-middleware')({ src: __dirname + '/public' }));
   app.use(express.static(path.join(__dirname, 'public')));
@@ -26,6 +41,8 @@ app.configure(function(){
 app.configure('development', function(){
   app.use(express.errorHandler());
 });
+
+i18n.registerAppHelper(app);
 
 
 //
@@ -50,22 +67,47 @@ app.post('/', function(req, res){
   res.render('created', {url: url, num: num, lang: lang});
 });
 
-// Show forecast data in JSONP format
+// Show forecast data
 app.get('/api/forecast', function(req, res) {
-    if(!req.query.jsonp) {
-      return res.send(400, "Missig jsonp. Example: ?jsonp=myCallback");
-    }
-    return handleShowForecast(req, res, req.query.jsonp);
+    return handleShowForecast(req, res);
 });
 
-// Show forecast as plain HTML
-app.get('/forecast', function(req, res) {
-  return handleShowForecast(req, res);
-});
+var Helpers = {
+  time: function(format,value){
+    return strftime(format,value);
+  },
+  temp: function(scale,value){
+    var t;
+
+    if(scale === "fahrenheit") t = ((value*9/5)+32).toFixed(2) + "&deg;F";
+    else if(scale === "kelvin") t = (value + 273.15).toFixed(2) + "&deg;K";
+    else if(scale === "rankine") t = ((value + 273.15)*9/5).toFixed(2) + "&deg;R";
+    else t = value + "&deg;C";
+    
+    return t;
+  },
+  length: function(scale,value){
+    var l;
+    
+    if(scale === "inch") l = (value*1/25.4).toFixed(3) + "\"";
+    else l = value + "mm";
+
+    return l;
+  },
+  speed: function(scale,value){
+    var s;
+
+    if(scale === 'fps') s = (value*3.280840).toFixed(2) + 'ft/s';
+    if(scale === 'knot') s = (value*1.943844).toFixed(2) + 'knots';
+    else s = value + 'm/s';
+    
+    return s;
+  }
+};
 
 // Generic handler of forecast that
 // outputs HTML or widget
-function handleShowForecast(req, res, jsonp) {
+function handleShowForecast(req, res) {
   var weatherUrl = req.query.url,
       limit = req.query.limit || 10;
 
@@ -76,13 +118,25 @@ function handleShowForecast(req, res, jsonp) {
   weatherUrl = weatherUrl.replace('http://', '');
 
   Cache.getOrFetch(weatherUrl, function(err, forecast, fromCache) {
+
     if(err) {
       return res.send(err);
     }
+    
     res.setHeader("X-Polman-Cache-Hit", fromCache || false);
-    res.setHeader("Content-Type", jsonp ? "application/javascript" : "text/html");
 
-    res.render(jsonp ? 'forecast-jsonp' : 'forecast', {forecast: forecast, num: limit, moment: moment, jsonp: jsonp});
+    res.format({
+      "html":function(){
+        res.render('forecast',{data:forecast.weatherdata.forecast.tabular,x:Helpers})
+      },
+      "json":function(){
+        res.json(forecast);
+      },
+      "javascript":function(){
+        res.jsonp(forecast);
+      }
+    });    
+    
   });
 }
 
@@ -139,7 +193,7 @@ YR = {
             return;
           }
           json = that.tidyJSON(json);
-          Cache.set(url, JSON.stringify(json));
+          Cache.set(url, json);
           cb.call(this, undefined, json);
         });
       });
@@ -168,43 +222,31 @@ YR = {
 
 };
 
-
-//
-// Redis cache.
-//
 Cache = {
-  
-  // Cache TTL/expiry in seconds
-  ttl: 60*15,
-
-  initialize: function() {
-    if (process.env.REDISTOGO_URL) {
-      var rtg = require("url").parse(process.env.REDISTOGO_URL);
-      redis = require("redis").createClient(rtg.port, rtg.hostname);
-      redis.auth(rtg.auth.split(":")[1]);
-    } else {
-      redis = require("redis").createClient();
-    }
-  },
-
+  store:{},
+  ttl: 60*15*1000,
   getOrFetch: function(key, cb) {
-    redis.get(key, function(err, forecast) {
-      if(forecast) {
+    var forecast = this.get(key);
+    
+    if(forecast) {
         // Hit from cache
-        cb.call(this, undefined, JSON.parse(forecast), true);
-      } else {
+        cb.call(this, undefined, forecast, true);
+    } else {
         // Go ask yr.no about the forecast
         YR.fetch(key, cb);
-      }
-    });
+    }
   },
-
-  set: function(key, value) {
-    var that = this;
-    redis.set(key, value, function() {
-      redis.expire(key, that.ttl);
-    });
+  get: function(key) {
+    var cached = this.store[key];
+    
+    if(cached && Date.now() < cached.expiry) 
+      return cached.data;
+  },
+  set: function(key, value, ttl) {
+    ttl = ttl ? ttl : this.ttl;
+    this.store[key] = {data:value, expiry:Date.now()+ttl};
   }
+
 
 };
 
@@ -214,7 +256,6 @@ Cache = {
 //
 http.createServer(app).listen(app.get('port'), function(){
   console.log("Express server listening on port " + app.get('port'));
-  Cache.initialize();
   YR.initialize();
 });
 
