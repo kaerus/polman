@@ -9,14 +9,14 @@ block content
         th= t('time')
         th= t('temp')
         th= t('prec')
-        th= t('wind') + '(' + t('speed') + ')'
-        th= t('wind') + '(' + t('direction') + ')'
+        th= t('wind') 
+        th= t('direction')
     tbody
       for item in x.limit(data.forecast,items)  
         tr
           td= x.time( t('_date_'), item.from)
           td= x.time( t('_time_'), item.from) + '-' + x.time(t('_time_'),item.to)
-          td!= x.temp( t('_temp_'), item.temperature.value)
+          td= x.temp( t('_temp_'), item.temperature.value)
           td= x.length( t('_length_'), item.precipitation.value)
           td= x.speed( t('_speed_'), item.windSpeed.mps)
           td= item.windDirection.code
